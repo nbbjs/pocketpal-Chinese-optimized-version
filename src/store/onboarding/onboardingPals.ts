@@ -68,7 +68,7 @@ const palEntry = (input: PalEntryInput): OnboardingPalModelEntry => ({
   repo: input.repo,
   filename: input.filename,
   author: input.repo.split('/')[0],
-  downloadUrl: `https://huggingface.co/${input.repo}/resolve/main/${input.filename}`,
+  downloadUrl: `https://hf-mirror.com/${input.repo}/resolve/main/${input.filename}`,
   displayName: input.displayName,
   sizeBytes: input.sizeBytes,
   params: input.params,

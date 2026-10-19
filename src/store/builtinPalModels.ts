@@ -10,21 +10,21 @@ import {defaultCompletionParams} from '../utils/completionSettingsVersions';
 const LOOKIE_HF_MODEL = {
   id: 'ggml-org/SmolVLM-500M-Instruct-GGUF',
   author: 'ggml-org',
-  url: 'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF',
+  url: 'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF',
   siblings: [
     {
       rfilename: 'SmolVLM-500M-Instruct-Q8_0.gguf',
-      url: 'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf',
+      url: 'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf',
       size: 436806912,
     },
     {
       rfilename: 'mmproj-SmolVLM-500M-Instruct-Q8_0.gguf',
-      url: 'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/mmproj-SmolVLM-500M-Instruct-Q8_0.gguf',
+      url: 'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/mmproj-SmolVLM-500M-Instruct-Q8_0.gguf',
       size: 108783360,
     },
     {
       rfilename: 'mmproj-SmolVLM-500M-Instruct-f16.gguf',
-      url: 'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/mmproj-SmolVLM-500M-Instruct-f16.gguf',
+      url: 'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/mmproj-SmolVLM-500M-Instruct-f16.gguf',
       size: 199468800,
     },
   ],
@@ -45,8 +45,8 @@ export const LOOKIE_DEFAULT_MODEL: Model = {
   params: 409252800,
   isDownloaded: false,
   downloadUrl:
-    'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf',
-  hfUrl: 'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF',
+    'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf',
+  hfUrl: 'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF',
   progress: 0,
   filename: 'SmolVLM-500M-Instruct-Q8_0.gguf',
   isLocal: false,
@@ -69,7 +69,7 @@ export const LOOKIE_DEFAULT_MODEL: Model = {
   hfModel: LOOKIE_HF_MODEL,
   hfModelFile: {
     rfilename: 'SmolVLM-500M-Instruct-Q8_0.gguf',
-    url: 'https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf',
+    url: 'https://hf-mirror.com/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf',
     size: 436806912,
     canFitInStorage: true,
   },

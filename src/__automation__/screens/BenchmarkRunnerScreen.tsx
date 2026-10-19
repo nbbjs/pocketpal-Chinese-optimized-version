@@ -762,7 +762,7 @@ export async function runMatrix(
           const modelFile = {
             rfilename: variant.filename,
             size: variant.size ?? 1,
-            url: `https://huggingface.co/${model.hfModelId}/resolve/main/${variant.filename}`,
+            url: `https://hf-mirror.com/${model.hfModelId}/resolve/main/${variant.filename}`,
           } as any;
           // Clear stale download error so we only observe failures from THIS
           // cell's download. The matrix is serial so one error slot is enough.
