@@ -171,8 +171,11 @@ jobs:
             exit 1
           fi
           cd android
+          # 不加 -PreactNativeArchitectures 限制：上游 build.gradle 的 abiFilters 是
+          # arm64-v8a + x86_64 双 ABI，payload 闸门的 manifest 同样要求 x86_64 的
+          # librnllama 库齐全。上一轮只编 arm64 被闸门判 FAIL（arm64 侧已 12/12 通过）。
           ./gradlew --no-daemon "${{ github.event.inputs.gradle_task || 'assembleProdRelease' }}" \
-            -PreactNativeArchitectures=arm64-v8a 2>&1 | tee android-build.log
+            2>&1 | tee android-build.log
 
       # 与 release.yml 一致：证明变体白名单真的传进了 llama.rn 子工程
       - name: Verify the variant allowlist reached the llama.rn build
