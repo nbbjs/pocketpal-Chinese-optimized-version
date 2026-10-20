@@ -1,0 +1,305 @@
+name: 一键升级（同步上游 + 重放镜像 + 构建 + 发 Release）
+
+# 一条按钮完成全部维护动作：
+#   dry-run  只拉上游、合并、重放镜像改动并校验锚点，不推送不构建（约 2 分钟，先探路）
+#   sync     在 dry-run 基础上把结果推回 main（不构建）
+#   full     全部做完，并构建 APK、自动建 Release 挂上安装包
+# 任何锚点没命中、残留官方下载域名、NPU payload 校验不过，都会明确报错停止，
+# 不会静默产出"没汉化的包"。
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "执行到哪一步：dry-run 探路 / sync 只同步 / full 出包并发 Release"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - dry-run
+          - sync
+          - full
+      upstream_ref:
+        description: "上游分支，一般保持 main"
+        required: false
+        default: "main"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-click-upgrade
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      ORG_GRADLE_PROJECT_rnllamaBuildFromSource: "true"
+      RNLLAMA_SKIP_POSTINSTALL: "1"
+
+    steps:
+      - name: 判断各步骤是否执行
+        id: plan
+        run: |
+          M="${{ github.event.inputs.mode || 'full' }}"
+          echo "is_sync=$([ "$M" != 'dry-run' ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "is_build=$([ "$M" = 'full' ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "mode=$M" >> "$GITHUB_OUTPUT"
+
+      # 必须在 setup-java / setup-node 之前执行：/opt/hostedtoolcache 是它们安装的位置，
+      # 而 Hexagon SDK 与双 ABI 编译需要这块空间。
+      - name: 腾出构建空间
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache
+          df -h /
+
+      - name: 检出 main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: 配置 git 身份
+        run: |
+          git config user.name "one-click-upgrade[bot]"
+          git config user.email "actions@github.com"
+
+      - name: 合并上游最新
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/a-ghorbani/pocketpal-ai.git
+          git fetch -q upstream "${{ github.event.inputs.upstream_ref || 'main' }}"
+          UP=$(git rev-parse upstream/"${{ github.event.inputs.upstream_ref || 'main' }}")
+          echo "上游 tip: $UP"
+          if git merge-base --is-ancestor "$UP" HEAD; then
+            echo "已是最新，无上游新提交需要合并"
+            echo "upstream=$UP" >> "$GITHUB_ENV"
+          else
+            BEFORE=$(git rev-parse HEAD)
+            if ! git merge --no-edit -m "同步上游 $UP" "$UP"; then
+              echo "::error::合并上游产生冲突，工作流按设计停止。冲突文件如下，请人工处理后再跑："
+              git diff --name-only --diff-filter=U | sed 's/^/  - /'
+              git merge --abort || true
+              exit 1
+            fi
+            echo "合并完成：$(git log --oneline "$BEFORE"..HEAD | wc -l) 个上游提交进入本仓库"
+            git log --oneline "$BEFORE"..HEAD | sed 's/^/  /'
+            echo "upstream=$UP" >> "$GITHUB_ENV"
+          fi
+
+      - name: 准备 Node（供重放脚本使用）
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22.21.0"
+
+      - name: 重放 hf-mirror 下载链路
+        run: node scripts/apply-hf-mirror.js --apply
+
+      - name: 校验下载链路与安全边界（未通过则停止）
+        run: node scripts/apply-hf-mirror.js --check
+
+      - name: 推回 main
+        if: steps.plan.outputs.is_sync == 'true'
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "同步上游并重放 hf-mirror 下载链路（自动）"
+            git push origin HEAD:main
+            echo "已推送，HEAD=$(git rev-parse --short HEAD)"
+          else
+            echo "无改动需要推送（上游无新提交，或改动已在库中）"
+          fi
+
+      # ---------- 以下步骤仅在 mode=full 时执行 ----------
+
+      - name: Set up JDK 17
+        if: steps.plan.outputs.is_build == 'true'
+        uses: actions/setup-java@v3
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Set up Node.js（构建用，带 yarn 缓存）
+        if: steps.plan.outputs.is_build == 'true'
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22.21.0"
+          cache: "yarn"
+
+      - name: Install dependencies
+        if: steps.plan.outputs.is_build == 'true'
+        run: yarn install
+
+      - name: Derive the rnllama variant allowlist from the payload manifest
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          set -euo pipefail
+          VARIANTS=$(node scripts/verify-android-payload.js --print-variants)
+          echo "Declared allowlist: $VARIANTS"
+          echo "ORG_GRADLE_PROJECT_rnllamaVariants=$VARIANTS" >> "$GITHUB_ENV"
+
+      - name: Set up the Hexagon SDK（NPU 后端）
+        if: steps.plan.outputs.is_build == 'true'
+        uses: ./.github/actions/setup-hexagon-sdk
+
+      - name: Set up Ruby
+        if: steps.plan.outputs.is_build == 'true'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2.3"
+          bundler-cache: true
+
+      # 组件版本一律从仓库里读，不写死：上游把 compileSdk 从 36 提到 37 这类变化会自动跟上。
+      - name: 按仓库声明补齐 Android SDK 组件
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          set -euo pipefail
+          G=android/build.gradle
+          BT=$(sed -n 's/.*buildToolsVersion = "\([0-9.]*\)".*/\1/p' "$G" | head -1)
+          CS=$(sed -n 's/.*compileSdkVersion = \([0-9]*\).*/\1/p' "$G" | head -1)
+          NDK=$(sed -n 's/.*ndkVersion = "\([0-9.]*\)".*/\1/p' "$G" | head -1)
+          CM=$(grep -rhoE '3\.[0-9]+\.[0-9]+' node_modules/@react-native/gradle-plugin/*/src/main/kotlin 2>/dev/null | head -1 || true)
+          [ -n "${CM:-}" ] || CM=3.22.1
+          echo "读取到：buildTools=$BT compileSdk=$CS ndk=$NDK cmake=$CM"
+          SDK_ROOT="${ANDROID_HOME:-$HOME/Android/Sdk}"
+          SDKM="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SDKM" ] || SDKM=$(find "$SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -1)
+          if [ -z "${SDKM:-}" ] || [ ! -x "$SDKM" ]; then
+            echo "::warning::找不到 sdkmanager，跳过补装"; exit 0
+          fi
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          ARGS=""
+          [ -n "$NDK" ] && ARGS="$ARGS ndk;$NDK"
+          [ -n "$BT" ]  && ARGS="$ARGS build-tools;$BT"
+          [ -n "$CS" ]  && ARGS="$ARGS platforms;android-$CS"
+          ARGS="$ARGS cmake;$CM"
+          # shellcheck disable=SC2086
+          yes | "$SDKM" $ARGS >/dev/null || true
+          echo "补装后："
+          ls -d "$SDK_ROOT"/ndk/* "$SDK_ROOT"/build-tools/* "$SDK_ROOT"/platforms/* 2>/dev/null | sed 's/^/  /'
+
+      - name: Create placeholder google-services.json
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          cat > android/app/google-services.json << 'GSJSON'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "pocketpal-mirror-placeholder",
+              "storage_bucket": "pocketpal-mirror-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.pocketpalai"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyPLACEHOLDERPLACEHOLDERPLACEHOL"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          GSJSON
+
+      - name: Create .env file
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          cat > .env << 'EOL'
+          FIREBASE_FUNCTIONS_URL=${{ vars.FIREBASE_FUNCTIONS_URL }}
+          SUPABASE_URL=${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+          PALSHUB_API_BASE_URL=${{ vars.PALSHUB_API_BASE_URL }}
+          APP_URL=pocketpal://app
+          ENABLE_PALSHUB_INTEGRATION=true
+          ENABLE_AUTHENTICATION=true
+          ENABLE_OFFLINE_MODE=true
+          GOOGLE_IOS_CLIENT_ID=${{ vars.GOOGLE_IOS_CLIENT_ID }}
+          GOOGLE_WEB_CLIENT_ID=${{ vars.GOOGLE_WEB_CLIENT_ID }}
+          EOL
+
+      - name: Build Android APK（双 ABI，含 NPU 后端）
+        if: steps.plan.outputs.is_build == 'true'
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/.gradle
+        run: |
+          set -euo pipefail
+          cd android
+          ./gradlew --no-daemon assembleProdRelease 2>&1 | tee android-build.log
+
+      - name: Verify the variant allowlist reached the llama.rn build
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          set -euo pipefail
+          VARIANTS=$(node scripts/verify-android-payload.js --print-variants)
+          if ! grep -qF "Building rnllama variants: $VARIANTS" android/android-build.log; then
+            echo "::error::llama.rn 没有报告它实际编译的变体集合，构建产物可能缺后端。"
+            grep -F "rnllama variants" android/android-build.log || echo "  (日志里没有这一行)"
+            exit 1
+          fi
+          echo "OK: llama.rn 已按声明编译变体"
+
+      - name: Verify the Android payload（NPU 组件齐全）
+        if: steps.plan.outputs.is_build == 'true'
+        run: |
+          set -euo pipefail
+          node scripts/verify-android-payload.js \
+            --apk android/app/build/outputs/apk/prod/release/app-prod-release.apk \
+            --report payload-report.txt
+          cat payload-report.txt
+
+      - name: 自动创建 Release 并挂 APK
+        if: steps.plan.outputs.is_build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/prod/release/app-prod-release.apk
+          VER=$(node -p "require('./package.json').version")
+          SHA7=$(git rev-parse --short=7 HEAD)
+          TAG="mirror-v$VER"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            TAG="mirror-v$VER-$SHA7"
+          fi
+          {
+            echo "### PocketPal 中文镜像优化版（自动构建）"
+            echo ""
+            echo "- 上游：a-ghorbani/pocketpal-ai v$VER，同步到 commit \`$upstream\`"
+            echo "- 本仓库 HEAD：\`$SHA7\`"
+            echo "- 改动：全部模型/TTS 下载源指向 hf-mirror.com（由 scripts/apply-hf-mirror.js 自动重放并校验）"
+            echo "- 构建：双 ABI arm64-v8a + x86_64；NPU payload 校验 PASS"
+            echo ""
+            echo "安装前必须卸载官方版（签名不同），本地模型与聊天数据会清空。"
+            echo "跑分上传排行榜、提交反馈两个功能不可用（占位 Firebase 配置）。"
+            echo "需要 HF token 的 gated/私有模型不支持下载（token 仍只发往官方域名）。"
+          } > notes.md
+          gh release create "$TAG" "$APK#pocketpal-mirror-v$VER.apk" \
+            --target main --title "PocketPal 中文镜像版 v$VER" --notes-file notes.md
+          echo "Release: https://github.com/${{ github.repository }}/releases/tag/$TAG"
+
+      - name: Upload APK 与 payload 报告（artifact 备份）
+        if: steps.plan.outputs.is_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-run-output
+          path: |
+            android/app/build/outputs/apk/prod/release/app-prod-release.apk
+            payload-report.txt
+          retention-days: 30
+          if-no-files-found: warn
