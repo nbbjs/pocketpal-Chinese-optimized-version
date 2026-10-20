@@ -43,7 +43,10 @@ const isHuggingFaceUrl = (url: unknown): url is string => {
   }
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'https:' && parsed.host === 'huggingface.co';
+    return (
+      parsed.protocol === 'https:' &&
+      (parsed.host === 'huggingface.co' || parsed.host === 'hf-mirror.com')
+    );
   } catch {
     return false;
   }
@@ -195,7 +198,7 @@ const parseClassifier = (v: unknown): Classifier => {
 // Deterministic public download URL. Shared with stub-build so parse and the
 // consumer agree on the exact shape; the host is hard-coded here.
 export const deriveUrl = (repo: string, filename: string): string =>
-  `https://huggingface.co/${repo}/resolve/main/${filename}`;
+  `https://hf-mirror.com/${repo}/resolve/main/${filename}`;
 
 // Split "author/repo" and return the two parts only if there are exactly two
 // non-empty ones. Anything else (zero or ≥2 slashes, empty part) → null.

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-import {urls} from '../config';
+import {HF_DOMAIN, urls} from '../config';
 
 import {hfUserAgent} from '../utils/hfUserAgent';
 import {
@@ -75,7 +75,9 @@ export async function fetchModels({
     if (linkHeader) {
       const match = linkHeader.match(/<([^>]*)>/);
       if (match) {
-        nextLink = match[1];
+        // 镜像返回的 Link 头仍是 huggingface.co 官方域名，翻页前改写到镜像，
+        // 否则第二页起会绕回国内不可达的官方站点。
+        nextLink = match[1].replace(/^https:\/\/huggingface\.co/, HF_DOMAIN);
       }
     }
 

@@ -30,7 +30,7 @@ export const TTS_PARENT_SUBDIR = 'tts';
  * from v3; see the supertonic engine and architecture/tts.md.
  */
 export const SUPERTONIC_MODEL_BASE_URL =
-  'https://huggingface.co/Supertone/supertonic-3/resolve/main';
+  'https://hf-mirror.com/Supertone/supertonic-3/resolve/main';
 
 /**
  * On-disk model generation this app expects. Bumped from the unversioned v2
@@ -92,7 +92,7 @@ export const SUPERTONIC_MODEL_ESTIMATED_BYTES = 398_352_949;
  * quantized variant is viable today.
  */
 export const KOKORO_MODEL_BASE_URL =
-  'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main';
+  'https://hf-mirror.com/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main';
 
 /** Base URL for the Kokoro per-voice `.bin` embedding files. */
 export const KOKORO_VOICES_BASE_URL = `${KOKORO_MODEL_BASE_URL}/voices`;
@@ -115,7 +115,7 @@ export const KOKORO_MODEL_FILES = [
  * so both engines share one download origin.
  */
 export const TTS_DICT_URL =
-  'https://huggingface.co/datasets/palshub/phonemizer-dicts/resolve/main/en-us.bin';
+  'https://hf-mirror.com/datasets/palshub/phonemizer-dicts/resolve/main/en-us.bin';
 
 /** Local filename for the IPA dict (saved inside each engine's model dir). */
 export const TTS_DICT_FILENAME = 'en-us.bin';
@@ -132,7 +132,7 @@ export const KOKORO_MODEL_ESTIMATED_BYTES = 330 * 1024 * 1024;
 
 /** HuggingFace base URL for the Kitten nano-fp32 model. */
 export const KITTEN_MODEL_BASE_URL =
-  'https://huggingface.co/palshub/kitten-tts-nano-0.8-fp32/resolve/main';
+  'https://hf-mirror.com/palshub/kitten-tts-nano-0.8-fp32/resolve/main';
 
 /**
  * Kitten files: the ONNX model (saved locally as `kitten.onnx`) and the
