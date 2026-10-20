@@ -77,11 +77,18 @@ jobs:
           ruby-version: "3.2.3"
           bundler-cache: true
 
-      # 本 fork 唯一新增的环境步骤：只补 runner 上的 SDK 组件，
-      # 不改 app 代码、不改依赖版本。缺哪个装哪个，已存在则秒过。
+      # 本 fork 唯一新增的环境步骤：只补 runner 上的 SDK 组件，不改 app 代码、不改依赖版本。
+      # 版本号从 android/build.gradle 动态读取（上游把 compileSdk 从 36 提到 37 时这里自动跟上）。
       - name: Ensure required NDK / CMake / platform components
         run: |
           set -euo pipefail
+          G=android/build.gradle
+          BT=$(sed -n 's/.*buildToolsVersion = "\([0-9.]*\)".*/\1/p' "$G" | head -1)
+          CS=$(sed -n 's/.*compileSdkVersion = \([0-9]*\).*/\1/p' "$G" | head -1)
+          NDK=$(sed -n 's/.*ndkVersion = "\([0-9.]*\)".*/\1/p' "$G" | head -1)
+          CM=$(grep -rhoE '3\.[0-9]+\.[0-9]+' node_modules/@react-native/gradle-plugin/*/src/main/kotlin 2>/dev/null | head -1 || true)
+          [ -n "${CM:-}" ] || CM=3.22.1
+          echo "读取到：buildTools=$BT compileSdk=$CS ndk=$NDK cmake=$CM"
           SDK_ROOT="${ANDROID_HOME:-$HOME/Android/Sdk}"
           SDKM="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           [ -x "$SDKM" ] || SDKM=$(find "$SDK_ROOT" -name sdkmanager -type f 2>/dev/null | head -1)
@@ -89,12 +96,15 @@ jobs:
             echo "::warning::找不到 sdkmanager，跳过组件补装；若 gradle 报 NDK 缺失即为本因"
             exit 0
           fi
-          echo "== 当前已安装 =="
-          yes | "$SDKM" --list_installed 2>/dev/null | grep -iE "ndk|cmake|platforms;android-36|build-tools" || true
-          echo "== 补装 ndk;27.3.13750724 / cmake;3.22.1 / platforms;android-36 =="
-          yes | "$SDKM" "ndk;27.3.13750724" "cmake;3.22.1" "platforms;android-36" >/dev/null || true
-          echo "== 补装后 NDK 目录 =="
-          ls -d "$SDK_ROOT"/ndk/* 2>/dev/null || echo "(无)"
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          ARGS=""
+          [ -n "$NDK" ] && ARGS="$ARGS ndk;$NDK"
+          [ -n "$BT" ]  && ARGS="$ARGS build-tools;$BT"
+          [ -n "$CS" ]  && ARGS="$ARGS platforms;android-$CS"
+          ARGS="$ARGS cmake;$CM"
+          # shellcheck disable=SC2086
+          yes | "$SDKM" $ARGS >/dev/null || true
+          ls -d "$SDK_ROOT"/ndk/* "$SDK_ROOT"/build-tools/* "$SDK_ROOT"/platforms/* 2>/dev/null | sed 's/^/  /'
 
       # 上游靠 secret GOOGLE_SERVICES_JSON 由 fastlane 写入该文件，且它被 .gitignore 忽略。
       # 本 fork 没有任何 Firebase 凭据，这里写一个结构合法的占位文件仅为跑通构建：
